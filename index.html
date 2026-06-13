@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ESP32 · Live Monitor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Inter:wght@300;400;600&display=swap" rel="stylesheet" />
+<style>
+/* ── Tokens ─────────────────────────────────────────── */
+:root {
+  --bg:        #060D1F;
+  --surface:   #0D1830;
+  --card:      #111E38;
+  --border:    #1E3060;
+  --cyan:      #00FFD1;
+  --cyan-dim:  #00b394;
+  --red:       #FF3C6E;
+  --amber:     #FFB830;
+  --text:      #C8D8F0;
+  --muted:     #5A7BAA;
+  --mono:      'Share Tech Mono', monospace;
+  --sans:      'Inter', sans-serif;
+  --radius:    6px;
+  --glow-c:    0 0 12px rgba(0,255,209,0.35);
+  --glow-r:    0 0 12px rgba(255,60,110,0.4);
+}
+
+/* ── Reset ──────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 14px;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* ── Grid dot background ────────────────────────────── */
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  background-image:
+    radial-gradient(circle, rgba(0,255,209,0.06) 1px, transparent 1px);
+  background-size: 28px 28px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ── Layout shell ───────────────────────────────────── */
+.shell {
+  position: relative; z-index: 1;
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 24px 20px 60px;
+}
+
+/* ── Header ─────────────────────────────────────────── */
+header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 18px;
+  margin-bottom: 28px;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.brand {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.brand-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+.brand-title {
+  font-family: var(--mono);
+  font-size: 26px;
+  color: var(--cyan);
+  letter-spacing: 0.04em;
+  line-height: 1;
+  text-shadow: var(--glow-c);
+}
+
+/* ── Live badge ─────────────────────────────────────── */
+.status-bar {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+}
+.live-badge {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--cyan);
+  font-size: 12px;
+}
+.live-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--cyan);
+  box-shadow: var(--glow-c);
+  animation: pulse 1.8s ease-in-out infinite;
+}
+.live-dot.offline {
+  background: var(--muted);
+  box-shadow: none;
+  animation: none;
+}
+@keyframes pulse {
+  0%,100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.4; transform: scale(0.75); }
+}
+
+/* ── Section label ───────────────────────────────────── */
+.section-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  color: var(--muted);
+  text-transform: uppercase;
+  margin-bottom: 12px;
+}
+
+/* ── Card grid ───────────────────────────────────────── */
+.grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+  margin-bottom: 14px;
+}
+.grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px;
+  margin-bottom: 14px;
+}
+.grid-1 {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+  margin-bottom: 24px;
+}
+
+/* ── Card base ───────────────────────────────────────── */
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  position: relative;
+  overflow: hidden;
+  transition: border-color 0.3s, box-shadow 0.3s;
+}
+.card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: var(--border);
+  transition: background 0.3s, box-shadow 0.3s;
+}
+.card.active::before {
+  background: var(--cyan);
+  box-shadow: var(--glow-c);
+}
+.card.active {
+  border-color: var(--cyan-dim);
+}
+.card.warn::before  { background: var(--amber); }
+.card.err::before   { background: var(--red); box-shadow: var(--glow-r); }
+
+.card-pin {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  color: var(--muted);
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+.card-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+.card-value {
+  font-family: var(--mono);
+  font-size: 22px;
+  color: var(--muted);
+  transition: color 0.3s, text-shadow 0.3s;
+}
+.card-value.on {
+  color: var(--cyan);
+  text-shadow: var(--glow-c);
+}
+.card-value.off  { color: var(--muted); }
+.card-value.play { color: var(--amber); }
+
+/* ── Sub-values ──────────────────────────────────────── */
+.card-sub {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 6px;
+}
+.card-sub span { color: var(--cyan-dim); }
+
+/* ── Switch row ─────────────────────────────────────── */
+.switch-row {
+  display: flex;
+  gap: 10px;
+  margin-top: 8px;
+}
+.switch-pill {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  flex: 1;
+}
+.pill-led {
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  background: var(--border);
+  transition: background 0.3s, box-shadow 0.3s;
+}
+.pill-led.on {
+  background: var(--cyan);
+  box-shadow: var(--glow-c);
+}
+.pill-label {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+/* ── Button row ─────────────────────────────────────── */
+.btn-row {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+}
+.btn-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 5px 10px;
+  flex: 1;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted);
+  transition: border-color 0.3s, color 0.3s;
+}
+.btn-chip.active {
+  border-color: var(--cyan-dim);
+  color: var(--cyan);
+}
+.btn-chip-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--border);
+  transition: background 0.3s, box-shadow 0.3s;
+}
+.btn-chip.active .btn-chip-dot {
+  background: var(--cyan);
+  box-shadow: var(--glow-c);
+}
+
+/* ── Volume bar ─────────────────────────────────────── */
+.vol-track {
+  height: 6px;
+  background: var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-top: 10px;
+}
+.vol-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--cyan-dim), var(--cyan));
+  border-radius: 3px;
+  transition: width 0.5s;
+  box-shadow: var(--glow-c);
+}
+
+/* ── Footer ──────────────────────────────────────────── */
+footer {
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  padding: 8px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted);
+  z-index: 10;
+}
+.footer-left  { display: flex; gap: 24px; }
+.footer-right { color: var(--muted); }
+
+/* ── Refresh indicator ───────────────────────────────── */
+.refresh-bar {
+  position: fixed;
+  top: 0; left: 0;
+  height: 2px;
+  background: var(--cyan);
+  box-shadow: var(--glow-c);
+  z-index: 99;
+  width: 0%;
+  transition: width 0.2s linear, opacity 0.3s;
+}
+
+/* ── Skeleton ────────────────────────────────────────── */
+@keyframes shimmer {
+  0%   { background-position: -400px 0; }
+  100% { background-position:  400px 0; }
+}
+.skeleton {
+  background: linear-gradient(90deg, var(--card) 25%, var(--surface) 50%, var(--card) 75%);
+  background-size: 400px 100%;
+  animation: shimmer 1.4s infinite;
+  border-radius: 3px;
+  height: 22px;
+  width: 60%;
+}
+
+/* ── Error banner ────────────────────────────────────── */
+.error-banner {
+  background: rgba(255,60,110,0.1);
+  border: 1px solid var(--red);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  color: var(--red);
+  font-family: var(--mono);
+  font-size: 12px;
+  margin-bottom: 20px;
+  display: none;
+}
+.error-banner.show { display: block; }
+
+/* ── Responsive ──────────────────────────────────────── */
+@media (max-width: 640px) {
+  .grid-3 { grid-template-columns: 1fr 1fr; }
+  .grid-2 { grid-template-columns: 1fr; }
+  .brand-title { font-size: 20px; }
+}
+@media (max-width: 420px) {
+  .grid-3 { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<div class="refresh-bar" id="refreshBar"></div>
+
+<div class="shell">
+
+  <!-- ── Header ─────────────────────────────────────── -->
+  <header>
+    <div class="brand">
+      <span class="brand-label">IoT Monitor · ESP32 + Blynk</span>
+      <span class="brand-title">BOARD&nbsp;STATUS</span>
+    </div>
+    <div class="status-bar">
+      <div class="live-badge">
+        <div class="live-dot" id="liveDot"></div>
+        <span id="liveLabel">CONNECTING</span>
+      </div>
+      <span id="syncTime">Last sync: —</span>
+      <span id="uptimeDisplay">Uptime: —</span>
+    </div>
+  </header>
+
+  <!-- ── Error banner ──────────────────────────────── -->
+  <div class="error-banner" id="errorBanner">
+    ⚠ Could not fetch data from GitHub Gist. Check GIST_ID and token, then
+    re-deploy. See README.md for setup steps.
+  </div>
+
+  <!-- ── LEDs ──────────────────────────────────────── -->
+  <p class="section-label">Output States</p>
+  <div class="grid-3">
+
+    <div class="card" id="cardStaticLed">
+      <div class="card-pin">GPIO 13 · V1</div>
+      <div class="card-label">Static LED</div>
+      <div class="card-value off" id="valStaticLed">OFF</div>
+    </div>
+
+    <div class="card" id="cardBlink1">
+      <div class="card-pin">GPIO 12 · Blink A</div>
+      <div class="card-label">Blink LED 1</div>
+      <div class="card-value off" id="valBlink1">–</div>
+    </div>
+
+    <div class="card" id="cardBlink2">
+      <div class="card-pin">GPIO 14 · Blink B</div>
+      <div class="card-label">Blink LED 2</div>
+      <div class="card-value off" id="valBlink2">–</div>
+    </div>
+
+  </div>
+
+  <!-- ── Music + blink config ──────────────────────── -->
+  <div class="grid-2">
+
+    <div class="card" id="cardMusic">
+      <div class="card-pin">DFPlayer Mini · V3</div>
+      <div class="card-label">Music Player</div>
+      <div class="card-value off" id="valMusic">STOPPED</div>
+      <div class="card-sub">Volume: <span id="valVolume">30</span>/30
+        <div class="vol-track" style="margin-top:8px">
+          <div class="vol-fill" id="volFill" style="width:100%"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" id="cardBlink">
+      <div class="card-pin">GPIO 12,14 · V2 / V4</div>
+      <div class="card-label">Blink Status</div>
+      <div class="card-value off" id="valBlink">IDLE</div>
+      <div class="card-sub">Interval: <span id="valInterval">50</span> ms</div>
+    </div>
+
+  </div>
+
+  <!-- ── Switches ───────────────────────────────────── -->
+  <p class="section-label" style="margin-top:10px">Switch Array · GPIO 27 / 26 / 25</p>
+  <div class="grid-1">
+    <div class="card" id="cardSwitches">
+      <div class="card-label">Switch → LED States</div>
+      <div class="switch-row">
+        <div class="switch-pill">
+          <div class="pill-led" id="sw1Led"></div>
+          <span class="pill-label">SW1<br>GPIO 27→33</span>
+        </div>
+        <div class="switch-pill">
+          <div class="pill-led" id="sw2Led"></div>
+          <span class="pill-label">SW2<br>GPIO 26→32</span>
+        </div>
+        <div class="switch-pill">
+          <div class="pill-led" id="sw3Led"></div>
+          <span class="pill-label">SW3<br>GPIO 25→23</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Buttons ────────────────────────────────────── -->
+  <p class="section-label">Button Inputs · ADC1</p>
+  <div class="grid-1">
+    <div class="card" id="cardButtons">
+      <div class="card-label">Button States</div>
+      <div class="btn-row">
+        <div class="btn-chip" id="btnCh6">
+          <div class="btn-chip-dot"></div>
+          <span>CH6 PIN 34</span>
+        </div>
+        <div class="btn-chip" id="btnCh3">
+          <div class="btn-chip-dot"></div>
+          <span>CH3 PIN 39</span>
+        </div>
+        <div class="btn-chip" id="btnCh0">
+          <div class="btn-chip-dot"></div>
+          <span>CH0 PIN 36</span>
+        </div>
+      </div>
+      <div class="card-sub" style="margin-top:12px">
+        Trigger combo: <span id="comboStatus">CH6+CH3 or CH6+CH0</span>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /shell -->
+
+<footer>
+  <div class="footer-left">
+    <span>ESP32 · Blynk IoT</span>
+    <span id="footerGistId">Gist: loading…</span>
+  </div>
+  <div class="footer-right" id="footerRefresh">Refreshing every 30 s</div>
+</footer>
+
+
+<script>
+// ── CONFIG ─────────────────────────────────────────────────
+// Replace with your actual Gist ID (same as GIST_ID in the .ino)
+const GIST_ID = "b50f62eb36a096daf15546c60cfcdd63";
+const REFRESH_MS = 30000;   // 30 seconds
+
+// ── DOM refs ───────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+const refreshBar   = $('refreshBar');
+const errorBanner  = $('errorBanner');
+const liveDot      = $('liveDot');
+const liveLabel    = $('liveLabel');
+
+// ── State ──────────────────────────────────────────────────
+let lastData = null;
+let refreshTimer = null;
+
+// ── Fetch & render ─────────────────────────────────────────
+async function fetchData() {
+  // Animate progress bar
+  refreshBar.style.width = '0%';
+  refreshBar.style.opacity = '1';
+  await sleep(50);
+  refreshBar.style.transition = 'width 1.5s linear';
+  refreshBar.style.width = '80%';
+
+  try {
+    const res = await fetch(
+      `https://api.github.com/gists/${GIST_ID}`,
+      { headers: { Accept: 'application/vnd.github.v3+json' } }
+    );
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+    const gist = await res.json();
+    const raw  = gist.files['esp32_data.json']?.content;
+    if (!raw) throw new Error('esp32_data.json not found in Gist');
+
+    const data = JSON.parse(raw);
+    lastData = data;
+    errorBanner.classList.remove('show');
+    render(data);
+    setLive(true);
+  } catch (err) {
+    console.error(err);
+    setLive(false);
+    errorBanner.classList.add('show');
+  } finally {
+    // Complete bar
+    refreshBar.style.transition = 'width 0.2s linear';
+    refreshBar.style.width = '100%';
+    await sleep(300);
+    refreshBar.style.opacity = '0';
+    refreshBar.style.transition = '';
+    refreshBar.style.width = '0%';
+  }
+}
+
+function render(d) {
+  const now = new Date().toLocaleTimeString();
+  $('syncTime').textContent = `Last sync: ${now}`;
+  $('uptimeDisplay').textContent = `Uptime: ${d.timestamp ?? '—'}`;
+  $('footerGistId').textContent = `Gist: ${GIST_ID.slice(0, 10)}…`;
+
+  // Static LED
+  setCard('cardStaticLed', 'valStaticLed', d.static_led, 'ON', 'OFF');
+
+  // Blinking
+  const blink = d.is_blinking;
+  setCard('cardBlink', 'valBlink', blink, 'ACTIVE', 'IDLE');
+  $('valInterval').textContent = d.blink_interval_ms ?? 50;
+
+  // Blink LED indicators (derived from blink state — board alternates them)
+  setCard('cardBlink1', 'valBlink1', blink, '◉ ON', '◯ OFF', true);
+  setCard('cardBlink2', 'valBlink2', blink, '◉ ON', '◯ OFF', true);
+
+  // Music
+  const playing = d.is_playing;
+  setCard('cardMusic', 'valMusic', playing, '▶ PLAYING', '■ STOPPED', false, 'play');
+  const vol = d.volume ?? 30;
+  $('valVolume').textContent = vol;
+  $('volFill').style.width = `${(vol / 30) * 100}%`;
+
+  // Switches
+  setLed('sw1Led', d.switches?.sw1);
+  setLed('sw2Led', d.switches?.sw2);
+  setLed('sw3Led', d.switches?.sw3);
+
+  // Buttons
+  setChip('btnCh6', d.buttons?.ch6);
+  setChip('btnCh3', d.buttons?.ch3);
+  setChip('btnCh0', d.buttons?.ch0);
+
+  const combo = (d.buttons?.ch6 && (d.buttons?.ch3 || d.buttons?.ch0));
+  $('comboStatus').textContent = combo
+    ? '⚡ ACTIVE — Trigger fired!'
+    : 'CH6+CH3 or CH6+CH0';
+  $('comboStatus').style.color = combo ? 'var(--cyan)' : '';
+}
+
+function setCard(cardId, valId, active, onText, offText, warn = false, customClass = null) {
+  const card = $(cardId);
+  const val  = $(valId);
+  card.className = 'card' + (active ? (warn ? ' warn' : ' active') : '');
+  val.className  = 'card-value ' + (active ? (customClass ?? 'on') : 'off');
+  val.textContent = active ? onText : offText;
+}
+
+function setLed(id, on) {
+  const el = $(id);
+  el.className = 'pill-led' + (on ? ' on' : '');
+}
+
+function setChip(id, active) {
+  const el = $(id);
+  el.className = 'btn-chip' + (active ? ' active' : '');
+}
+
+function setLive(online) {
+  liveDot.className  = 'live-dot' + (online ? '' : ' offline');
+  liveLabel.textContent = online ? 'LIVE' : 'OFFLINE';
+  liveLabel.style.color = online ? 'var(--cyan)' : 'var(--red)';
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ── Countdown in footer ────────────────────────────────────
+let countdown = REFRESH_MS / 1000;
+setInterval(() => {
+  countdown--;
+  if (countdown <= 0) countdown = REFRESH_MS / 1000;
+  $('footerRefresh').textContent = `Next refresh in ${countdown}s`;
+}, 1000);
+
+// ── Init ───────────────────────────────────────────────────
+fetchData();
+setInterval(fetchData, REFRESH_MS);
+</script>
+</body>
+</html>
