@@ -358,11 +358,57 @@ footer {
 }
 .error-banner.show { display: block; }
 
+/* ── License plate ───────────────────────────────────── */
+.plate-wrap { display: flex; justify-content: center; margin: 4px 0 24px; }
+.plate {
+  background: #F4F4F0;
+  color: #111;
+  border: 4px solid #111;
+  border-radius: 8px;
+  padding: 10px 34px;
+  font-family: var(--mono);
+  font-size: 44px;
+  letter-spacing: 0.12em;
+  box-shadow: 0 0 0 2px #888, 0 6px 20px rgba(0,0,0,0.5);
+  text-align: center;
+}
+.plate-caption {
+  font-family: var(--mono); font-size: 9px; letter-spacing: 0.2em;
+  color: var(--muted); text-transform: uppercase; text-align: center; margin-top: 8px;
+}
+
+/* ── Warning banner + sound toggle ───────────────────── */
+.warning-banner {
+  display: none;
+  background: rgba(255,60,110,0.15);
+  border: 1px solid var(--red);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin-bottom: 20px;
+  color: var(--red);
+  font-family: var(--mono);
+  font-size: 15px;
+  letter-spacing: 0.1em;
+  text-align: center;
+  box-shadow: var(--glow-r);
+  animation: flash 0.8s steps(2, start) infinite;
+}
+.warning-banner.show { display: block; }
+@keyframes flash { to { background: rgba(255,60,110,0.38); } }
+.sound-btn {
+  background: var(--surface); color: var(--cyan);
+  border: 1px solid var(--cyan-dim); border-radius: 4px;
+  padding: 4px 10px; cursor: pointer;
+  font-family: var(--mono); font-size: 11px;
+}
+.sound-btn.on { background: var(--cyan); color: var(--bg); }
+
 /* ── Responsive ──────────────────────────────────────── */
 @media (max-width: 640px) {
   .grid-3 { grid-template-columns: 1fr 1fr; }
   .grid-2 { grid-template-columns: 1fr; }
   .brand-title { font-size: 20px; }
+  .plate { font-size: 30px; padding: 8px 20px; }
 }
 @media (max-width: 420px) {
   .grid-3 { grid-template-columns: 1fr; }
@@ -388,6 +434,7 @@ footer {
       </div>
       <span id="syncTime">Last sync: —</span>
       <span id="uptimeDisplay">Uptime: —</span>
+      <button class="sound-btn" id="soundBtn" type="button">🔇 ENABLE ALERT SOUND</button>
     </div>
   </header>
 
@@ -395,6 +442,17 @@ footer {
   <div class="error-banner" id="errorBanner">
     ⚠ Could not fetch data from GitHub Gist. Check GIST_ID and token, then
     re-deploy. See README.md for setup steps.
+  </div>
+
+  <!-- ── Warning banner ────────────────────────────── -->
+  <div class="warning-banner" id="warningBanner">⚠ WARNING — TRIGGER ACTIVE ⚠</div>
+
+  <!-- ── License plate ─────────────────────────────── -->
+  <div class="plate-wrap">
+    <div>
+      <div class="plate" id="plate">—</div>
+      <div class="plate-caption">Registered vehicle</div>
+    </div>
   </div>
 
   <!-- ── LEDs ──────────────────────────────────────── -->
@@ -498,15 +556,16 @@ footer {
     <span>ESP32 · Blynk IoT</span>
     <span id="footerGistId">Gist: loading…</span>
   </div>
-  <div class="footer-right" id="footerRefresh">Refreshing every 30 s</div>
+  <div class="footer-right" id="footerRefresh">Refreshing every 60 s</div>
 </footer>
 
 
 <script>
 // ── CONFIG ─────────────────────────────────────────────────
 // Replace with your actual Gist ID (same as GIST_ID in the .ino)
-const GIST_ID = "b50f62eb36a096daf15546c60cfcdd63";
-const REFRESH_MS = 30000;   // 30 seconds
+const GIST_ID = "YOUR_GIST_ID_HERE";
+const REFRESH_MS = 60000;   // 60 s (keeps unauthenticated GitHub API under 60 req/h)
+const PLATE_NUMBER = "WXY 1234";   // ← fixed license plate shown on the dashboard
 
 // ── DOM refs ───────────────────────────────────────────────
 const $ = id => document.getElementById(id);
@@ -514,6 +573,51 @@ const refreshBar   = $('refreshBar');
 const errorBanner  = $('errorBanner');
 const liveDot      = $('liveDot');
 const liveLabel    = $('liveLabel');
+
+// ── Plate (fixed) ──────────────────────────────────────────
+$('plate').textContent = PLATE_NUMBER;
+
+// ── Warning sound (Web Audio — no audio file needed) ───────
+let audioCtx = null;
+let soundEnabled = false;
+let lastWarnCount = null;
+
+$('soundBtn').addEventListener('click', () => {
+  // Browsers only allow audio after a user click
+  audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+  audioCtx.resume();
+  soundEnabled = !soundEnabled;
+  $('soundBtn').textContent = soundEnabled ? '🔊 ALERT SOUND ON' : '🔇 ENABLE ALERT SOUND';
+  $('soundBtn').classList.toggle('on', soundEnabled);
+  if (soundEnabled) playWarning();   // test beep
+});
+
+function playWarning() {
+  if (!soundEnabled || !audioCtx) return;
+  const t0 = audioCtx.currentTime;
+  // 6 alternating high/low tones ≈ 3 s siren
+  for (let i = 0; i < 6; i++) {
+    const osc  = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'square';
+    osc.frequency.value = i % 2 ? 660 : 990;
+    gain.gain.setValueAtTime(0.0001, t0 + i * 0.5);
+    gain.gain.exponentialRampToValueAtTime(0.25, t0 + i * 0.5 + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + i * 0.5 + 0.45);
+    osc.connect(gain).connect(audioCtx.destination);
+    osc.start(t0 + i * 0.5);
+    osc.stop(t0 + i * 0.5 + 0.5);
+  }
+}
+
+function handleWarning(d) {
+  const active = !!d.warning;
+  $('warningBanner').classList.toggle('show', active);
+  const count = d.warning_count ?? 0;
+  // sound only when the ESP32 reports a NEW trigger since last poll
+  if (lastWarnCount !== null && count > lastWarnCount) playWarning();
+  lastWarnCount = count;
+}
 
 // ── State ──────────────────────────────────────────────────
 let lastData = null;
@@ -564,6 +668,8 @@ function render(d) {
   $('syncTime').textContent = `Last sync: ${now}`;
   $('uptimeDisplay').textContent = `Uptime: ${d.timestamp ?? '—'}`;
   $('footerGistId').textContent = `Gist: ${GIST_ID.slice(0, 10)}…`;
+
+  handleWarning(d);
 
   // Static LED
   setCard('cardStaticLed', 'valStaticLed', d.static_led, 'ON', 'OFF');
